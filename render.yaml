@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: g2ball-football
+    runtime: node
+    plan: starter
+    buildCommand: "echo prebuilt"
+    startCommand: "node server/server.mjs"
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATA_DIR
+        value: /var/data
+      - key: APIFY_TOKEN
+        sync: false
+    disk:
+      name: g2ball-data
+      mountPath: /var/data
+      sizeGB: 1

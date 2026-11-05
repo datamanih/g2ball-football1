@@ -587,8 +587,31 @@ async function sendApns(hex, data) {
     }
   });
 }
-function sendPush(token, data) {
-  return token.startsWith("apns:") ? sendApns(token.slice(5), data) : sendFcm(token, data);
+var plat = (token) => token.startsWith("apns:") ? "iPhone" : "Android";
+async function sendPush(token, data) {
+  const r = await (token.startsWith("apns:") ? sendApns(token.slice(5), data) : sendFcm(token, data));
+  console.log(`push ${data.kind ?? ""} \u2192 ${plat(token)} ${r}: ${(data.title ?? "").slice(0, 60)}`);
+  return r;
+}
+function pushStatus(store2) {
+  const rows = Object.values(store2.data.devices).map((d) => ({
+    phone: plat(d.token ?? ""),
+    updated: d.updated,
+    football: footballOn(d),
+    teams: d.teams.length,
+    leagues: d.leagues?.length ?? 0,
+    sports: Object.entries(d.sports ?? {}).filter(([, v]) => v).map(([k]) => k).join(","),
+    goals: d.prefs.goals,
+    ko: d.prefs.ko,
+    ft: d.prefs.ft
+  })).sort((a, b) => b.updated.localeCompare(a.updated));
+  return { android: !!sa, iphone: !!apns, devices: rows.length, iphones: rows.filter((r) => r.phone === "iPhone").length, rows };
+}
+async function pushTest(store2, phone) {
+  const d = Object.values(store2.data.devices).filter((x) => x.token && plat(x.token) === phone).sort((a, b) => b.updated.localeCompare(a.updated))[0];
+  if (!d?.token) return { ok: false, error: `No ${phone} registered` };
+  const r = await sendPush(d.token, { kind: "test", title: "G2Ball test alert", body: "Goal alerts are working on this phone.", tag: "test", url: "#/" });
+  return { ok: r === "ok", result: r, updated: d.updated };
 }
 var tokenCache = null;
 async function accessToken() {
@@ -641,6 +664,7 @@ function registerDevice(store2, body) {
   if (body.enabled === false) {
     delete store2.data.devices[key];
     store2.save();
+    console.log(`push unregister: ${plat(token)} (alerts off)`);
     return { ok: true, alerts: false };
   }
   const seen2 = /* @__PURE__ */ new Set();
@@ -665,6 +689,7 @@ function registerDevice(store2, body) {
   }
   store2.data.devices[key] = { teams, prefs, ...sports ? { sports } : {}, ...leagues ? { leagues } : {}, ...sportTeams ? { sportTeams } : {}, updated: (/* @__PURE__ */ new Date()).toISOString(), token };
   store2.save();
+  console.log(`push register: ${plat(token)}, football ${footballOn(store2.data.devices[key]) ? "on" : "off"}, ${teams.length} teams, ${leagues?.length ?? 0} leagues, sports ${Object.entries(sports ?? {}).filter(([, v]) => v).map(([k]) => k).join(",") || "none"}, can send ${canSend(token)}`);
   return { ok: true, alerts: canSend(token), teams: teams.length };
 }
 var seen = /* @__PURE__ */ new Map();
@@ -1259,6 +1284,16 @@ async function api(req, res, url) {
   const p = url.pathname.replace(/^.*?\/api\//, "/");
   const m = req.method;
   if (m !== "GET" && m !== "HEAD" && req.headers["x-g2ball"] !== "1") return fail(res, 403, "Missing request header");
+  if (p.startsWith("/push/admin/") && env2.ADMIN_KEY && env2.ADMIN_KEY.length >= 24) {
+    const k = String(req.headers["x-admin-key"] ?? "");
+    const ok = k.length === env2.ADMIN_KEY.length && crypto2.timingSafeEqual(Buffer.from(k), Buffer.from(env2.ADMIN_KEY));
+    if (!ok || limited(`pa:${clientIp(req)}`, 30, 36e5)) return fail(res, 403, "Forbidden");
+    if (p === "/push/admin/status" && m === "GET") return send(res, 200, pushStatus(devices));
+    if (p === "/push/admin/test" && m === "POST") {
+      const b = await readJson(req);
+      return send(res, 200, await pushTest(devices, b?.phone === "Android" ? "Android" : "iPhone"));
+    }
+  }
   if (p === "/push/register" && m === "POST") {
     if (limited(`pr:${clientIp(req)}`, 60, 36e5)) return fail(res, 429, "Too many requests. Try again later.");
     return send(res, 200, registerDevice(devices, await readJson(req)));

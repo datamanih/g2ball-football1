@@ -607,8 +607,14 @@ function pushStatus(store2) {
   })).sort((a, b) => b.updated.localeCompare(a.updated));
   return { android: !!sa, iphone: !!apns, devices: rows.length, iphones: rows.filter((r) => r.phone === "iPhone").length, rows };
 }
-async function pushTest(store2, phone) {
-  const d = Object.values(store2.data.devices).filter((x) => x.token && plat(x.token) === phone).sort((a, b) => b.updated.localeCompare(a.updated))[0];
+async function pushTest(store2, phone, all = false) {
+  const list = Object.values(store2.data.devices).filter((x) => x.token && plat(x.token) === phone).sort((a, b) => b.updated.localeCompare(a.updated));
+  if (all) {
+    const results = [];
+    for (const x of list) results.push({ updated: x.updated, result: await sendPush(x.token, { kind: "test", title: "G2Ball test alert", body: "Goal alerts are working on this phone.", tag: "test", url: "#/" }) });
+    return { ok: results.length > 0 && results.every((r2) => r2.result === "ok"), results };
+  }
+  const d = list[0];
   if (!d?.token) return { ok: false, error: `No ${phone} registered` };
   const r = await sendPush(d.token, { kind: "test", title: "G2Ball test alert", body: "Goal alerts are working on this phone.", tag: "test", url: "#/" });
   return { ok: r === "ok", result: r, updated: d.updated };
@@ -1291,7 +1297,7 @@ async function api(req, res, url) {
     if (p === "/push/admin/status" && m === "GET") return send(res, 200, pushStatus(devices));
     if (p === "/push/admin/test" && m === "POST") {
       const b = await readJson(req);
-      return send(res, 200, await pushTest(devices, b?.phone === "Android" ? "Android" : "iPhone"));
+      return send(res, 200, await pushTest(devices, b?.phone === "Android" ? "Android" : "iPhone", b?.all === true));
     }
   }
   if (p === "/push/register" && m === "POST") {

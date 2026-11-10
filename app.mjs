@@ -635,9 +635,9 @@ async function pushTest(store2, phone, all = false) {
   const r = await sendPush(d.token, { kind: "test", title: "G2Ball test alert", body: "Goal alerts are working on this phone.", tag: "test", url: "#/" });
   return { ok: r === "ok", result: r, updated: d.updated };
 }
-async function pushBroadcast(store2, phone, title, body, newestOnly = false) {
+async function pushBroadcast(store2, phone, title, body, newestOnly = false, skipNewest = false) {
   const all = Object.values(store2.data.devices).filter((x) => x.token && plat(x.token) === phone).sort((a, b) => b.updated.localeCompare(a.updated));
-  const list = newestOnly ? all.slice(0, 1) : all;
+  const list = newestOnly ? all.slice(0, 1) : skipNewest ? all.slice(1) : all;
   const results = [];
   for (const x of list) results.push({ updated: x.updated, result: await sendPush(x.token, { kind: "news", title, body, tag: "news", url: "#/" }) });
   return { ok: results.length > 0 && results.every((r) => r.result === "ok"), sent: results.length, results };
@@ -1387,7 +1387,7 @@ async function api(req, res, url) {
       const b = await readJson(req);
       const t = str(b?.title, 60), x = str(b?.body, 200);
       if (!t || !x) return fail(res, 400, "title and body needed");
-      return send(res, 200, await pushBroadcast(devices, b?.phone === "Android" ? "Android" : "iPhone", t, x, b?.newest === true));
+      return send(res, 200, await pushBroadcast(devices, b?.phone === "Android" ? "Android" : "iPhone", t, x, b?.newest === true, b?.skipNewest === true));
     }
     if (p === "/push/admin/test" && m === "POST") {
       const b = await readJson(req);
